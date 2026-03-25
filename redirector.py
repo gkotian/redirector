@@ -23,25 +23,25 @@ def load_config():
             project_name = project["project_name"]
             namespace = project["rancher_namespace"]
             for app in project["apps"]:
-            entry = {
-                "azure_devops_org": org,
-                "project_name": project_name,
-                "rancher_namespace": namespace,
-                "repo_name": app["repo_name"],
-                "pipeline_id": app["pipeline_id"],
-                "datadog_service_name": app["datadog_service_name"],
-                "api_hostname": app.get("api_hostname"),
-                "is_cronjob": app.get("is_cronjob", False),
-            }
-            by_datadog_service[app["datadog_service_name"]] = entry
-            by_rancher[
-                (namespace, app["datadog_service_name"])
-            ] = entry
-            by_repo[
-                (org, project_name, app["repo_name"])
-            ] = entry
-            if app.get("api_hostname"):
-                by_api_hostname[app["api_hostname"]] = entry
+                entry = {
+                    "azure_devops_org": org,
+                    "project_name": project_name,
+                    "rancher_namespace": namespace,
+                    "repo_name": app["repo_name"],
+                    "pipeline_id": app["pipeline_id"],
+                    "datadog_service_name": app["datadog_service_name"],
+                    "api_hostname": app.get("api_hostname"),
+                    "is_cronjob": app.get("is_cronjob", False),
+                }
+                by_datadog_service[app["datadog_service_name"]] = entry
+                by_rancher[
+                    (namespace, app["datadog_service_name"])
+                ] = entry
+                by_repo[
+                    (org, project_name, app["repo_name"])
+                ] = entry
+                if app.get("api_hostname"):
+                    by_api_hostname[app["api_hostname"]] = entry
 
     return by_datadog_service, by_rancher, by_repo, by_api_hostname
 
