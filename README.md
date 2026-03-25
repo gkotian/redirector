@@ -37,6 +37,18 @@ Per-app optional fields:
 After editing, reload the config by visiting
 `http://localhost:1111/reload` in your browser, or restart the server.
 
+To add entries interactively, run:
+
+```bash
+python add_config_entry.py \
+  'https://dev.azure.com/my-org/my.project/_git/My.App'
+```
+
+The helper also accepts old-style Azure DevOps URLs such as
+`https://my-org.visualstudio.com/my.project/_git/My.App`, normalizes them,
+shows guessed defaults, and inserts the new entry with projects sorted by
+`project_name` and apps sorted by `repo_name`.
+
 ## Running on startup
 
 The server should ideally be always running. To start it automatically on
