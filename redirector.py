@@ -174,6 +174,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"Navigation server running on http://localhost:{PORT}")
+    print(f"Redirector running on http://localhost:{PORT}")
     print(f"Config: {CONFIG_PATH}")
     HTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
