@@ -1,0 +1,53 @@
+[
+  {
+    "azure_devops_org": "org1",
+    "azure_devops_projects": [
+      {
+        "project_name": "org1.project1",
+        "rancher_namespace": "namespace1",
+        "apps": [
+          {
+            "repo_name": "org1.project1.app1",
+            "pipeline_id": "123",
+            "datadog_service_name": "org1.project1.app1",
+            "api_hostname": "o1p1a1"
+          }
+        ]
+      },
+      {
+        "project_name": "org1.project2",
+        "rancher_namespace": "namespace2",
+        "apps": [
+          {
+            "repo_name": "org1.project2.app1",
+            "pipeline_id": "234",
+            "datadog_service_name": "org1.project2.app1",
+            "api_hostname": "o1p2a1"
+          },
+          {
+            "repo_name": "org1.project2.app2",
+            "pipeline_id": "345",
+            "datadog_service_name": "org1.project2.app2",
+            "is_cronjob": true
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "azure_devops_org": "org2",
+    "azure_devops_projects": [
+      {
+        "project_name": "org2.project1",
+        "rancher_namespace": "namespace3",
+        "apps": [
+          {
+            "repo_name": "org2.project1.app1",
+            "pipeline_id": "123",
+            "datadog_service_name": "org2.project1.app1"
+          }
+        ]
+      }
+    ]
+  }
+]
