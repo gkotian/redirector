@@ -54,9 +54,11 @@ shows guessed defaults, and inserts the new entry with projects sorted by
 The server should ideally be always running. To start it automatically on
 logging in:
 
-**Windows:** Create a shortcut to `pythonw redirector.py` (note `pythonw`,
-not `python`, to avoid a console window) and place it in your Startup folder
-(`Win+R` > `shell:startup`).
+**Windows:** Copy `StartRedirector.vbs` from this repo into your Startup
+folder (`Win+R` > `shell:startup`). The script starts `redirector.py` via
+`pythonw` so no console window is shown, and it first terminates any older
+redirector instance that was started from the same script path. If you change
+`StartRedirector.vbs`, copy the updated file into the Startup folder again.
 
 **Linux/macOS:** Add `python /path/to/redirector.py &` to your shell profile,
 or create a systemd service / launchd plist.
