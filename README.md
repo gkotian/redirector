@@ -49,6 +49,15 @@ The helper also accepts old-style Azure DevOps URLs such as
 shows guessed defaults, and inserts the new entry with projects sorted by
 `project_name` and apps sorted by `repo_name`.
 
+To process queued URLs from `urls/all-urls.txt`, run:
+
+```bash
+python add_config_entry_helper.py
+```
+
+The helper keeps showing the next topmost URL until the file is empty. Enter
+`q` to stop without consuming the current URL.
+
 ## Running on startup
 
 The server should ideally be always running. To start it automatically on
