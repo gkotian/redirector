@@ -21,7 +21,7 @@ Edit `config.json` to add apps. Structure:
             "pipeline_id": "123",
             "datadog_service_name": "my-app",
             "api_hostname": "myapp",
-            "is_cronjob": false
+            "kubernetes_workload_type": "deployment"
           }
         ]
       }
@@ -35,7 +35,7 @@ Per-app optional fields:
 - `is_deployed` — set to `false` if the app is not deployed and has no Rancher/Datadog redirects
 - `datadog_service_name` — omit if `is_deployed` is `false`
 - `api_hostname` — omit if the app has no API endpoint
-- `is_cronjob` — omit or set `false` for deployments, `true` for k8s cronjobs
+- `kubernetes_workload_type` — for deployed apps, set to `deployment` or `cronjob`
 
 Project-level note:
 - `rancher_namespace` can be left blank for projects with no Rancher deployment

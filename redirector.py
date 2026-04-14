@@ -35,7 +35,7 @@ def load_config():
                     "is_deployed": app.get(
                         "is_deployed", bool(app.get("datadog_service_name"))
                     ),
-                    "is_cronjob": app.get("is_cronjob", False),
+                    "kubernetes_workload_type": app.get("kubernetes_workload_type"),
                 }
                 if entry["is_deployed"] and entry["datadog_service_name"]:
                     by_datadog_service[entry["datadog_service_name"]] = entry
@@ -107,6 +107,7 @@ def destination_is_supported(entry, destination):
             entry.get("is_deployed")
             and entry.get("rancher_namespace")
             and entry.get("datadog_service_name")
+            and entry.get("kubernetes_workload_type") in {"deployment", "cronjob"}
         )
 
     if destination == "repo":
@@ -125,6 +126,14 @@ def describe_unsupported_destination(entry, destination):
     repo_name = entry["repo_name"]
 
     if destination in ("rancher", "rancher-dev"):
+        if entry.get("is_deployed") and entry.get("kubernetes_workload_type") not in {
+            "deployment",
+            "cronjob",
+        }:
+            return (
+                f"No {destination} redirect is configured for {repo_name}. "
+                "This deployed app is missing a valid kubernetes_workload_type."
+            )
         return (
             f"No {destination} redirect is configured for {repo_name}. "
             "This app may be a library/package with no Rancher deployment."
@@ -156,7 +165,7 @@ def build_target(entry, destination):
     if destination in ("rancher", "rancher-dev"):
         subdomain = ("rancher.dev" if destination == "rancher-dev"
                      else "rancher")
-        if entry["is_cronjob"]:
+        if entry["kubernetes_workload_type"] == "cronjob":
             resource_type = "batch.cronjob"
             fragment = "#jobs"
         else:

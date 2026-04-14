@@ -143,6 +143,18 @@ def prompt_bool(label, default):
         print("Please answer y or n.")
 
 
+def prompt_choice(label, default, choices):
+    choices_display = "/".join(choices)
+    while True:
+        prompt = f"{label} [{default}] ({choices_display}): "
+        answer = input(prompt).strip().lower()
+        if not answer:
+            return default
+        if answer in choices:
+            return answer
+        print(f"Please answer with one of: {choices_display}.")
+
+
 def print_entry(fields):
     print("")
     print("Proposed entry:")
@@ -158,7 +170,10 @@ def print_entry(fields):
     )
     print(f"  api_hostname: {fields['api_hostname'] or '(blank)'}")
     print(f"  is_deployed: {fields['is_deployed']}")
-    print(f"  is_cronjob: {fields['is_cronjob']}")
+    print(
+        "  kubernetes_workload_type: "
+        f"{fields['kubernetes_workload_type'] or '(blank)'}"
+    )
 
 
 def collect_fields(initial_fields):
@@ -184,7 +199,13 @@ def collect_fields(initial_fields):
     fields["is_deployed"] = prompt_bool("is_deployed", fields["is_deployed"])
     if not fields["is_deployed"]:
         fields["datadog_service_name"] = ""
-    fields["is_cronjob"] = prompt_bool("is_cronjob", fields["is_cronjob"])
+        fields["kubernetes_workload_type"] = ""
+    else:
+        fields["kubernetes_workload_type"] = prompt_choice(
+            "kubernetes_workload_type",
+            fields["kubernetes_workload_type"],
+            ("deployment", "cronjob"),
+        )
     print_entry(fields)
     return fields
 
@@ -199,8 +220,8 @@ def build_app_entry(fields):
         entry["api_hostname"] = fields["api_hostname"]
     if not fields["is_deployed"]:
         entry["is_deployed"] = False
-    if fields["is_cronjob"]:
-        entry["is_cronjob"] = True
+    if fields["is_deployed"]:
+        entry["kubernetes_workload_type"] = fields["kubernetes_workload_type"]
     return entry
 
 
@@ -264,7 +285,7 @@ def main():
         "datadog_service_name": dashify_repo_name(repo_name),
         "api_hostname": guess_api_hostname(project_name, repo_name),
         "is_deployed": True,
-        "is_cronjob": False,
+        "kubernetes_workload_type": "deployment",
     }
 
     fields = collect_fields(fields)
