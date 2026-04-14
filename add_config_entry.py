@@ -149,7 +149,7 @@ def print_entry(fields):
     print(f"  repo_url: {fields['repo_url']}")
     print(f"  azure_devops_org: {fields['azure_devops_org']}")
     print(f"  project_name: {fields['project_name']}")
-    print(f"  rancher_namespace: {fields['rancher_namespace']}")
+    print(f"  rancher_namespace: {fields['rancher_namespace'] or '(blank)'}")
     print(f"  repo_name: {fields['repo_name']}")
     print(f"  pipeline_id: {fields['pipeline_id'] or '(blank)'}")
     print(
@@ -157,6 +157,7 @@ def print_entry(fields):
         f"{fields['datadog_service_name'] or '(blank)'}"
     )
     print(f"  api_hostname: {fields['api_hostname'] or '(blank)'}")
+    print(f"  is_deployed: {fields['is_deployed']}")
     print(f"  is_cronjob: {fields['is_cronjob']}")
 
 
@@ -164,12 +165,12 @@ def collect_fields(initial_fields):
     fields = dict(initial_fields)
     print("")
     print("Confirm values. Press Enter to keep the default shown in brackets.")
-    fields["pipeline_id"] = prompt_string("pipeline_id", fields["pipeline_id"])
+    fields["pipeline_id"] = prompt_optional_string("pipeline_id", fields["pipeline_id"])
     fields["azure_devops_org"] = prompt_string(
         "azure_devops_org", fields["azure_devops_org"]
     )
     fields["project_name"] = prompt_string("project_name", fields["project_name"])
-    fields["rancher_namespace"] = prompt_string(
+    fields["rancher_namespace"] = prompt_optional_string(
         "rancher_namespace", fields["rancher_namespace"]
     )
     fields["repo_name"] = prompt_string("repo_name", fields["repo_name"])
@@ -179,19 +180,25 @@ def collect_fields(initial_fields):
     fields["api_hostname"] = prompt_optional_string(
         "api_hostname", fields["api_hostname"]
     )
+    fields["is_deployed"] = bool(fields["datadog_service_name"]) and fields["is_deployed"]
+    fields["is_deployed"] = prompt_bool("is_deployed", fields["is_deployed"])
+    if not fields["is_deployed"]:
+        fields["datadog_service_name"] = ""
     fields["is_cronjob"] = prompt_bool("is_cronjob", fields["is_cronjob"])
     print_entry(fields)
     return fields
 
 
 def build_app_entry(fields):
-    entry = {
-        "repo_name": fields["repo_name"],
-        "pipeline_id": fields["pipeline_id"],
-        "datadog_service_name": fields["datadog_service_name"],
-    }
+    entry = {"repo_name": fields["repo_name"]}
+    if fields["pipeline_id"]:
+        entry["pipeline_id"] = fields["pipeline_id"]
+    if fields["is_deployed"] and fields["datadog_service_name"]:
+        entry["datadog_service_name"] = fields["datadog_service_name"]
     if fields["api_hostname"]:
         entry["api_hostname"] = fields["api_hostname"]
+    if not fields["is_deployed"]:
+        entry["is_deployed"] = False
     if fields["is_cronjob"]:
         entry["is_cronjob"] = True
     return entry
@@ -256,6 +263,7 @@ def main():
         "pipeline_id": "",
         "datadog_service_name": dashify_repo_name(repo_name),
         "api_hostname": guess_api_hostname(project_name, repo_name),
+        "is_deployed": True,
         "is_cronjob": False,
     }
 

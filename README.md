@@ -31,8 +31,14 @@ Edit `config.json` to add apps. Structure:
 ```
 
 Per-app optional fields:
+- `pipeline_id` — omit if there is no Azure DevOps pipeline redirect
+- `is_deployed` — set to `false` if the app is not deployed and has no Rancher/Datadog redirects
+- `datadog_service_name` — omit if `is_deployed` is `false`
 - `api_hostname` — omit if the app has no API endpoint
 - `is_cronjob` — omit or set `false` for deployments, `true` for k8s cronjobs
+
+Project-level note:
+- `rancher_namespace` can be left blank for projects with no Rancher deployment
 
 After editing, reload the config by visiting
 `http://localhost:1111/reload` in your browser, or restart the server.

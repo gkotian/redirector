@@ -15,6 +15,7 @@ def load_config():
     by_datadog_service = {}
     by_rancher = {}
     by_repo = {}
+    by_pipeline = {}
     by_api_hostname = {}
 
     for org_entry in orgs:
@@ -28,22 +29,29 @@ def load_config():
                     "project_name": project_name,
                     "rancher_namespace": namespace,
                     "repo_name": app["repo_name"],
-                    "pipeline_id": app["pipeline_id"],
-                    "datadog_service_name": app["datadog_service_name"],
+                    "pipeline_id": app.get("pipeline_id"),
+                    "datadog_service_name": app.get("datadog_service_name"),
                     "api_hostname": app.get("api_hostname"),
+                    "is_deployed": app.get(
+                        "is_deployed", bool(app.get("datadog_service_name"))
+                    ),
                     "is_cronjob": app.get("is_cronjob", False),
                 }
-                by_datadog_service[app["datadog_service_name"]] = entry
-                by_rancher[
-                    (namespace, app["datadog_service_name"])
-                ] = entry
+                if entry["is_deployed"] and entry["datadog_service_name"]:
+                    by_datadog_service[entry["datadog_service_name"]] = entry
+                if entry["is_deployed"] and entry["datadog_service_name"]:
+                    by_rancher[
+                        (namespace, entry["datadog_service_name"])
+                    ] = entry
                 by_repo[
                     (org, project_name, app["repo_name"])
                 ] = entry
-                if app.get("api_hostname"):
-                    by_api_hostname[app["api_hostname"]] = entry
+                if entry["pipeline_id"]:
+                    by_pipeline[(org, project_name, entry["pipeline_id"])] = entry
+                if entry["api_hostname"]:
+                    by_api_hostname[entry["api_hostname"]] = entry
 
-    return by_datadog_service, by_rancher, by_repo, by_api_hostname
+    return by_datadog_service, by_rancher, by_repo, by_pipeline, by_api_hostname
 
 
 def identify_app(url):
@@ -78,15 +86,66 @@ def identify_app(url):
         if len(path) >= 3:
             org = path[0]
             project = path[1]
+            if path[2] == "_build":
+                query = parse_qs(parsed.query)
+                pipeline_id = query.get("definitionId", [""])[0]
+                if pipeline_id:
+                    return by_pipeline.get((org, project, pipeline_id))
             repo = path[3] if len(path) > 3 else None
             if repo:
                 return by_repo.get((org, project, repo))
-            for entry in by_datadog_service.values():
-                if (entry["azure_devops_org"] == org and
-                        entry["project_name"] == project):
-                    return entry
 
     return None
+
+
+def destination_is_supported(entry, destination):
+    if destination == "datadog":
+        return bool(entry.get("is_deployed") and entry.get("datadog_service_name"))
+
+    if destination in ("rancher", "rancher-dev"):
+        return bool(
+            entry.get("is_deployed")
+            and entry.get("rancher_namespace")
+            and entry.get("datadog_service_name")
+        )
+
+    if destination == "repo":
+        return True
+
+    if destination == "pipeline":
+        return bool(entry.get("pipeline_id"))
+
+    if destination in ("api", "api-dev"):
+        return bool(entry.get("api_hostname"))
+
+    return False
+
+
+def describe_unsupported_destination(entry, destination):
+    repo_name = entry["repo_name"]
+
+    if destination in ("rancher", "rancher-dev"):
+        return (
+            f"No {destination} redirect is configured for {repo_name}. "
+            "This app may be a library/package with no Rancher deployment."
+        )
+
+    if destination == "datadog":
+        return (
+            f"No Datadog redirect is configured for {repo_name}. "
+            "This app may not publish logs as a deployable service."
+        )
+
+    if destination == "pipeline":
+        return f"No pipeline redirect is configured for {repo_name}."
+
+    if destination in ("api", "api-dev"):
+        return (
+            f"No {destination} redirect is configured for {repo_name}. "
+            "This app may not expose an API endpoint."
+        )
+
+    return f"Unknown destination: {destination}"
 
 
 def build_target(entry, destination):
@@ -119,11 +178,9 @@ def build_target(entry, destination):
                 entry["azure_devops_org"] + "/" +
                 entry["project_name"] +
                 "/_build?definitionId=" + entry["pipeline_id"])
-
+    
     if destination in ("api", "api-dev"):
-        api_hostname = entry.get("api_hostname")
-        if not api_hostname:
-            return None
+        api_hostname = entry["api_hostname"]
         subdomain = (api_hostname + ".dev"
                      if destination == "api-dev"
                      else api_hostname)
@@ -132,7 +189,7 @@ def build_target(entry, destination):
     return None
 
 
-by_datadog_service, by_rancher, by_repo, by_api_hostname = load_config()
+by_datadog_service, by_rancher, by_repo, by_pipeline, by_api_hostname = load_config()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -143,8 +200,14 @@ class Handler(BaseHTTPRequestHandler):
         url = unquote(params.get("url", [""])[0])
 
         if route == "reload":
-            global by_datadog_service, by_rancher, by_repo
-            by_datadog_service, by_rancher, by_repo, by_api_hostname = load_config()
+            global by_datadog_service, by_rancher, by_repo, by_pipeline, by_api_hostname
+            (
+                by_datadog_service,
+                by_rancher,
+                by_repo,
+                by_pipeline,
+                by_api_hostname,
+            ) = load_config()
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
@@ -158,6 +221,14 @@ class Handler(BaseHTTPRequestHandler):
         entry = identify_app(url)
         if not entry:
             self.send_error(404, "No mapping found for this URL")
+            return
+
+        if route not in {"datadog", "rancher", "rancher-dev", "repo", "pipeline", "api", "api-dev"}:
+            self.send_error(400, "Unknown destination: " + route)
+            return
+
+        if not destination_is_supported(entry, route):
+            self.send_error(404, describe_unsupported_destination(entry, route))
             return
 
         target = build_target(entry, route)
