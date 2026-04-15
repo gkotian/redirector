@@ -1,6 +1,7 @@
 import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
++from urllib.parse import SplitResult
 from urllib.parse import parse_qs, unquote, urlparse
 
 CONFIG_PATH = Path(__file__).parent / "config.json"
@@ -54,8 +55,30 @@ def load_config():
     return by_datadog_service, by_rancher, by_repo, by_pipeline, by_api_hostname
 
 
-def identify_app(url):
+def normalize_azure_devops_url(url):
     parsed = urlparse(url)
+    host = parsed.hostname or ""
+
+    if not host.endswith(".visualstudio.com"):
+        return parsed
+
+    org = host.removesuffix(".visualstudio.com")
+    path = parsed.path
+    if not path.startswith("/"):
+        path = "/" + path
+
+    normalized = SplitResult(
+        scheme=parsed.scheme or "https",
+        netloc="dev.azure.com",
+        path=f"/{org}{path}",
+        query=parsed.query,
+        fragment=parsed.fragment,
+    )
+    return urlparse(normalized.geturl())
+
+
+def identify_app(url):
+    parsed = normalize_azure_devops_url(url)
     host = parsed.hostname or ""
 
     if "rancher" in host:
@@ -187,7 +210,7 @@ def build_target(entry, destination):
                 entry["azure_devops_org"] + "/" +
                 entry["project_name"] +
                 "/_build?definitionId=" + entry["pipeline_id"])
-    
+
     if destination in ("api", "api-dev"):
         api_hostname = entry["api_hostname"]
         subdomain = (api_hostname + ".dev"
