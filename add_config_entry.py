@@ -155,59 +155,91 @@ def prompt_choice(label, default, choices):
         print(f"Please answer with one of: {choices_display}.")
 
 
+def format_field_value(value, not_applicable=False):
+    if not_applicable:
+        return "-N/A-"
+    return value or "(blank)"
+
+
 def print_entry(fields):
     print("")
     print("Proposed entry:")
     print(f"  repo_url: {fields['repo_url']}")
     print(f"  azure_devops_org: {fields['azure_devops_org']}")
     print(f"  project_name: {fields['project_name']}")
-    print(f"  rancher_namespace: {fields['rancher_namespace'] or '(blank)'}")
     print(f"  repo_name: {fields['repo_name']}")
-    print(f"  pipeline_id: {fields['pipeline_id'] or '(blank)'}")
-    print(
-        "  datadog_service_name: "
-        f"{fields['datadog_service_name'] or '(blank)'}"
-    )
-    print(f"  api_hostname: {fields['api_hostname'] or '(blank)'}")
+    print(f"  pipeline_id: {format_field_value(fields['pipeline_id'])}")
     print(f"  is_deployed: {fields['is_deployed']}")
     print(
+        "  rancher_namespace: "
+        f"{format_field_value(fields['rancher_namespace'], not fields['is_deployed'])}"
+    )
+    print(
+        "  datadog_service_name: "
+        f"{format_field_value(fields['datadog_service_name'], not fields['is_deployed'])}"
+    )
+    print(
         "  kubernetes_workload_type: "
-        f"{fields['kubernetes_workload_type'] or '(blank)'}"
+        f"{format_field_value(fields['kubernetes_workload_type'], not fields['is_deployed'])}"
+    )
+    print(
+        "  api_hostname: "
+        f"{format_field_value(fields['api_hostname'], not fields['is_deployed'])}"
     )
 
 
-def collect_fields(initial_fields):
-    fields = dict(initial_fields)
+def normalize_deployment_fields(fields):
+    if fields["is_deployed"]:
+        if not fields["kubernetes_workload_type"]:
+            fields["kubernetes_workload_type"] = "deployment"
+    else:
+        fields["datadog_service_name"] = ""
+        fields["kubernetes_workload_type"] = ""
+        fields["api_hostname"] = ""
+    return fields
+
+
+def edit_fields(fields):
     print("")
-    print("Confirm values. Press Enter to keep the default shown in brackets.")
-    fields["pipeline_id"] = prompt_optional_string("pipeline_id", fields["pipeline_id"])
+    print("Edit values. Press Enter to keep the default shown in brackets.")
     fields["azure_devops_org"] = prompt_string(
         "azure_devops_org", fields["azure_devops_org"]
     )
     fields["project_name"] = prompt_string("project_name", fields["project_name"])
-    fields["rancher_namespace"] = prompt_optional_string(
-        "rancher_namespace", fields["rancher_namespace"]
-    )
     fields["repo_name"] = prompt_string("repo_name", fields["repo_name"])
-    fields["datadog_service_name"] = prompt_optional_string(
-        "datadog_service_name", fields["datadog_service_name"]
-    )
-    fields["api_hostname"] = prompt_optional_string(
-        "api_hostname", fields["api_hostname"]
-    )
-    fields["is_deployed"] = bool(fields["datadog_service_name"]) and fields["is_deployed"]
-    fields["is_deployed"] = prompt_bool("is_deployed", fields["is_deployed"])
-    if not fields["is_deployed"]:
-        fields["datadog_service_name"] = ""
-        fields["kubernetes_workload_type"] = ""
-    else:
+
+    if fields["is_deployed"]:
+        fields["rancher_namespace"] = prompt_optional_string(
+            "rancher_namespace", fields["rancher_namespace"]
+        )
+        fields["datadog_service_name"] = prompt_optional_string(
+            "datadog_service_name", fields["datadog_service_name"]
+        )
         fields["kubernetes_workload_type"] = prompt_choice(
             "kubernetes_workload_type",
             fields["kubernetes_workload_type"],
             ("deployment", "cronjob"),
         )
-    print_entry(fields)
-    return fields
+
+    if fields["is_deployed"]:
+        fields["api_hostname"] = prompt_optional_string(
+            "api_hostname", fields["api_hostname"]
+        )
+    return normalize_deployment_fields(fields)
+
+
+def collect_fields(initial_fields):
+    fields = dict(initial_fields)
+    print("")
+    fields["pipeline_id"] = prompt_optional_string("pipeline_id", fields["pipeline_id"])
+    fields["is_deployed"] = prompt_bool("is_deployed", fields["is_deployed"])
+    fields = normalize_deployment_fields(fields)
+
+    while True:
+        print_entry(fields)
+        if prompt_yes_no("Use these values?", default=True):
+            return fields
+        fields = edit_fields(fields)
 
 
 def build_app_entry(fields):
