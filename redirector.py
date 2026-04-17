@@ -1,4 +1,5 @@
 import json
+import socket
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import SplitResult
@@ -120,6 +121,47 @@ def identify_app(url):
     return None
 
 
+def describe_source(url):
+    parsed = normalize_azure_devops_url(url)
+    host = parsed.hostname or ""
+
+    if "rancher.dev" in host:
+        return "Rancher (dev)"
+
+    if "rancher" in host:
+        return "Rancher (prod)"
+
+    if "datadoghq" in host:
+        return "Datadog"
+
+    if CLUSTER_DOMAIN in host and "rancher" not in host:
+        if ".dev." + CLUSTER_DOMAIN in host:
+            return "API (dev)"
+        return "API (prod)"
+
+    if "dev.azure.com" in host:
+        path = parsed.path.strip("/").split("/")
+        if len(path) >= 3 and path[2] == "_build":
+            return "Pipeline"
+        if len(path) >= 3 and path[2] == "_git":
+            return "Repo"
+
+    return host or "Unknown"
+
+
+def describe_destination(destination):
+    labels = {
+        "datadog": "Datadog",
+        "rancher": "Rancher (prod)",
+        "rancher-dev": "Rancher (dev)",
+        "repo": "Repo",
+        "pipeline": "Pipeline",
+        "api": "API (prod)",
+        "api-dev": "API (dev)",
+    }
+    return labels.get(destination, destination)
+
+
 def destination_is_supported(entry, destination):
     if destination == "datadog":
         return bool(entry.get("is_deployed") and entry.get("datadog_service_name"))
@@ -224,11 +266,45 @@ by_datadog_service, by_rancher, by_repo, by_pipeline, by_api_hostname = load_con
 
 
 class Handler(BaseHTTPRequestHandler):
+    def get_requester_identity(self):
+        # Prefer an authenticated username if an upstream proxy forwards one.
+        for header in (
+            "X-Forwarded-User",
+            "X-Auth-Request-User",
+            "Remote-User",
+            "X-Remote-User",
+        ):
+            value = self.headers.get(header)
+            if value:
+                return value
+
+        for header in ("X-Forwarded-For", "X-Real-IP"):
+            value = self.headers.get(header)
+            if value:
+                return value.split(",", 1)[0].strip()
+
+        client_ip = self.client_address[0]
+        try:
+            hostname = socket.gethostbyaddr(client_ip)[0]
+            if hostname and hostname != client_ip:
+                return hostname
+        except (socket.herror, socket.gaierror, OSError):
+            pass
+
+        return client_ip
+
     def do_GET(self):
         parsed = urlparse(self.path)
         route = parsed.path.lstrip("/")
         params = parse_qs(parsed.query)
         url = unquote(params.get("url", [""])[0])
+
+        if route == "health":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"ok")
+            return
 
         if route == "reload":
             global by_datadog_service, by_rancher, by_repo, by_pipeline, by_api_hostname
@@ -267,7 +343,16 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(400, "Unknown destination: " + route)
             return
 
-        print(f"request_url={url} target_url={target}")
+        requester = self.get_requester_identity()
+        app_name = entry["repo_name"]
+        source = describe_source(url)
+        destination = describe_destination(route)
+        print(json.dumps({
+            "user": requester,
+            "app": app_name,
+            "source": source,
+            "destination": destination,
+        }))
         self.send_response(302)
         self.send_header("Location", target)
         self.end_headers()
