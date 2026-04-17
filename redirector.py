@@ -1,11 +1,10 @@
 import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-+from urllib.parse import SplitResult
+from urllib.parse import SplitResult
 from urllib.parse import parse_qs, unquote, urlparse
 
 CONFIG_PATH = Path(__file__).parent / "config.json"
-PORT = 1111
 CLUSTER_DOMAIN = "example.com"
 
 
@@ -268,6 +267,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(400, "Unknown destination: " + route)
             return
 
+        print(f"request_url={url} target_url={target}")
         self.send_response(302)
         self.send_header("Location", target)
         self.end_headers()
@@ -277,6 +277,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"Redirector running on http://localhost:{PORT}")
+    host = "127.0.0.1"
+    port = 1111
+    print(f"Redirector running on http://{host}:{port}")
     print(f"Config: {CONFIG_PATH}")
-    HTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    HTTPServer((host, port), Handler).serve_forever()
