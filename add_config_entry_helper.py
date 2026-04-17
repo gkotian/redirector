@@ -65,7 +65,7 @@ def main():
 
         try:
             action = prompt_action("Add this URL to the config?")
-        except EOFError:
+        except (EOFError, KeyboardInterrupt):
             print("")
             print("Stopped without consuming the current URL.")
             return 0
@@ -74,9 +74,12 @@ def main():
             print("Stopped without consuming the current URL.")
             return 0
 
+        should_consume = False
+
         try:
             if action == "no":
                 print("Skipped adding config entry.")
+                should_consume = True
             else:
                 result = subprocess.run(
                     [sys.executable, str(ADD_CONFIG_ENTRY_PATH), url]
@@ -86,8 +89,15 @@ def main():
                         f"add_config_entry.py exited with code {result.returncode}.",
                         file=sys.stderr,
                     )
+                else:
+                    should_consume = True
+        except KeyboardInterrupt:
+            print("")
+            print("Stopped without consuming the current URL.")
+            return 0
         finally:
-            remove_line(URLS_PATH, index)
+            if should_consume:
+                remove_line(URLS_PATH, index)
             print("")
 
 

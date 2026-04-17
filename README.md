@@ -62,7 +62,8 @@ python add_config_entry_helper.py
 ```
 
 The helper keeps showing the next topmost URL until the file is empty. Enter
-`q` to stop without consuming the current URL.
+`q` to stop without consuming the current URL. If the interactive add flow is
+interrupted before its final confirmation, the current URL is also preserved.
 
 ## Running on startup
 
