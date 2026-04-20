@@ -169,7 +169,7 @@ def print_entry(fields):
     print(f"  project_name: {fields['project_name']}")
     print(f"  repo_name: {fields['repo_name']}")
     print(f"  pipeline_id: {format_field_value(fields['pipeline_id'])}")
-    print(f"  is_deployed: {fields['is_deployed']}")
+    print(f"  visible_on_rancher: {fields['is_deployed']}")
     print(
         "  rancher_namespace: "
         f"{format_field_value(fields['rancher_namespace'], not fields['is_deployed'])}"
@@ -182,20 +182,26 @@ def print_entry(fields):
         "  kubernetes_workload_type: "
         f"{format_field_value(fields['kubernetes_workload_type'], not fields['is_deployed'])}"
     )
+    print(f"  exposes_api: {fields['has_api']}")
     print(
         "  api_hostname: "
-        f"{format_field_value(fields['api_hostname'], not fields['is_deployed'])}"
+        f"{format_field_value(fields['api_hostname'], not fields['has_api'])}"
     )
 
 
-def normalize_deployment_fields(fields):
+def normalize_fields(fields):
     if fields["is_deployed"]:
         if not fields["kubernetes_workload_type"]:
             fields["kubernetes_workload_type"] = "deployment"
     else:
+        fields["rancher_namespace"] = ""
         fields["datadog_service_name"] = ""
         fields["kubernetes_workload_type"] = ""
+        fields["has_api"] = False
+
+    if not fields["has_api"]:
         fields["api_hostname"] = ""
+
     return fields
 
 
@@ -220,20 +226,30 @@ def edit_fields(fields):
             fields["kubernetes_workload_type"],
             ("deployment", "cronjob"),
         )
+        fields["has_api"] = prompt_bool(
+            f"Does {fields['repo_name']} expose an API?", fields["has_api"]
+        )
 
-    if fields["is_deployed"]:
+    if fields["has_api"]:
         fields["api_hostname"] = prompt_optional_string(
             "api_hostname", fields["api_hostname"]
         )
-    return normalize_deployment_fields(fields)
+    return normalize_fields(fields)
 
 
 def collect_fields(initial_fields):
     fields = dict(initial_fields)
+    repo_name = fields["repo_name"]
     print("")
     fields["pipeline_id"] = prompt_optional_string("pipeline_id", fields["pipeline_id"])
-    fields["is_deployed"] = prompt_bool("is_deployed", fields["is_deployed"])
-    fields = normalize_deployment_fields(fields)
+    fields["is_deployed"] = prompt_bool(
+        f"Is {repo_name} visible on rancher?", fields["is_deployed"]
+    )
+    if fields["is_deployed"]:
+        fields["has_api"] = prompt_bool(
+            f"Does {repo_name} expose an API?", fields["has_api"]
+        )
+    fields = normalize_fields(fields)
 
     while True:
         print_entry(fields)
@@ -316,6 +332,7 @@ def main():
         "pipeline_id": "",
         "datadog_service_name": dashify_repo_name(repo_name),
         "api_hostname": guess_api_hostname(project_name, repo_name),
+        "has_api": bool(guess_api_hostname(project_name, repo_name)),
         "is_deployed": True,
         "kubernetes_workload_type": "deployment",
     }
