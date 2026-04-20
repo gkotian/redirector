@@ -205,6 +205,27 @@ def normalize_fields(fields):
     return fields
 
 
+def prompt_rancher_and_api_fields(fields, include_rancher_visibility):
+    repo_name = fields["repo_name"]
+
+    if include_rancher_visibility:
+        fields["is_deployed"] = prompt_bool(
+            f"Is {repo_name} visible on rancher?", fields["is_deployed"]
+        )
+
+    if fields["is_deployed"]:
+        fields["has_api"] = prompt_bool(
+            f"Does {repo_name} expose an API?", fields["has_api"]
+        )
+
+    if fields["has_api"]:
+        fields["api_hostname"] = prompt_optional_string(
+            "api_hostname", fields["api_hostname"]
+        )
+
+    return normalize_fields(fields)
+
+
 def edit_fields(fields):
     print("")
     print("Edit values. Press Enter to keep the default shown in brackets.")
@@ -226,32 +247,19 @@ def edit_fields(fields):
             fields["kubernetes_workload_type"],
             ("deployment", "cronjob"),
         )
-        fields["has_api"] = prompt_bool(
-            f"Does {fields['repo_name']} expose an API?", fields["has_api"]
-        )
 
-    if fields["has_api"]:
-        fields["api_hostname"] = prompt_optional_string(
-            "api_hostname", fields["api_hostname"]
-        )
-    return normalize_fields(fields)
+    return prompt_rancher_and_api_fields(
+        fields, include_rancher_visibility=False
+    )
 
 
 def collect_fields(initial_fields):
     fields = dict(initial_fields)
-    repo_name = fields["repo_name"]
     print("")
     fields["pipeline_id"] = prompt_optional_string(
         "Enter the pipeline definition ID", fields["pipeline_id"]
     )
-    fields["is_deployed"] = prompt_bool(
-        f"Is {repo_name} visible on rancher?", fields["is_deployed"]
-    )
-    if fields["is_deployed"]:
-        fields["has_api"] = prompt_bool(
-            f"Does {repo_name} expose an API?", fields["has_api"]
-        )
-    fields = normalize_fields(fields)
+    fields = prompt_rancher_and_api_fields(fields, include_rancher_visibility=True)
 
     while True:
         print_entry(fields)
