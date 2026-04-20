@@ -241,7 +241,9 @@ def collect_fields(initial_fields):
     fields = dict(initial_fields)
     repo_name = fields["repo_name"]
     print("")
-    fields["pipeline_id"] = prompt_optional_string("pipeline_id", fields["pipeline_id"])
+    fields["pipeline_id"] = prompt_optional_string(
+        "Enter the pipeline definition ID", fields["pipeline_id"]
+    )
     fields["is_deployed"] = prompt_bool(
         f"Is {repo_name} visible on rancher?", fields["is_deployed"]
     )
