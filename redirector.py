@@ -13,6 +13,31 @@ def entry_kubernetes_workload_name(entry):
     return entry.get("kubernetes_workload_name") or entry.get("datadog_service_name")
 
 
+def parse_rancher_workload(parsed):
+    parts = [unquote(part) for part in parsed.path.strip("/").split("/") if part]
+
+    if "explorer" in parts:
+        explorer_index = parts.index("explorer")
+        if len(parts) > explorer_index + 3:
+            namespace = parts[explorer_index + 2]
+            workload_name = parts[explorer_index + 3]
+            return namespace, workload_name
+
+    if len(parts) >= 2:
+        return parts[-2], parts[-1]
+
+    return "", ""
+
+
+def parse_datadog_service(parsed):
+    query = parse_qs(parsed.query)
+    q = query.get("query", [""])[0]
+    for part in q.split(" "):
+        if part.startswith("service:"):
+            return part.split(":", 1)[1]
+    return ""
+
+
 def load_config():
     with open(CONFIG_PATH) as f:
         orgs = json.load(f)
@@ -90,18 +115,13 @@ def identify_app(url):
     host = parsed.hostname or ""
 
     if "rancher" in host:
-        path = parsed.path.rstrip("/").split("/")
-        service = path[-1].split("#")[0]
-        namespace = path[-2]
-        return by_rancher.get((namespace, service))
+        namespace, workload_name = parse_rancher_workload(parsed)
+        return by_rancher.get((namespace, workload_name))
 
     if "datadoghq" in host:
-        query = parse_qs(parsed.query)
-        q = query.get("query", [""])[0]
-        for part in q.split(" "):
-            if part.startswith("service:"):
-                service = part.split(":", 1)[1]
-                return by_datadog_service.get(service)
+        service = parse_datadog_service(parsed)
+        if service:
+            return by_datadog_service.get(service)
 
     if CLUSTER_DOMAIN in host and "rancher" not in host:
         # API endpoint URL, e.g. mongodbgateway.example.com
@@ -168,6 +188,77 @@ def describe_destination(destination):
         "api-dev": "API (dev)",
     }
     return labels.get(destination, destination)
+
+
+def describe_mapping_failure(url):
+    parsed = normalize_azure_devops_url(url)
+    host = parsed.hostname or ""
+
+    if "rancher" in host:
+        namespace, workload_name = parse_rancher_workload(parsed)
+        if namespace and workload_name:
+            return (
+                "No mapping found for Rancher workload "
+                f"{namespace}/{workload_name}."
+            )
+
+    if "datadoghq" in host:
+        service = parse_datadog_service(parsed)
+        if service:
+            return f"No mapping found for Datadog service {service}."
+
+    if CLUSTER_DOMAIN in host and "rancher" not in host:
+        hostname = host.replace(".dev." + CLUSTER_DOMAIN, "")
+        hostname = hostname.replace("." + CLUSTER_DOMAIN, "")
+        if hostname:
+            return f"No mapping found for API hostname {hostname}."
+
+    if "dev.azure.com" in host:
+        path = parsed.path.strip("/").split("/")
+        if len(path) >= 3 and path[2] == "_build":
+            query = parse_qs(parsed.query)
+            pipeline_id = query.get("definitionId", [""])[0]
+            if pipeline_id:
+                return f"No mapping found for pipeline definitionId {pipeline_id}."
+        if len(path) > 3:
+            return f"No mapping found for repo {path[0]}/{path[1]}/{path[3]}."
+
+    return "No mapping found for this URL"
+
+
+def source_debug_fields(url):
+    if not url:
+        return {}
+
+    parsed = normalize_azure_devops_url(url)
+    host = parsed.hostname or ""
+    fields = {
+        "source_host": host,
+        "source_path": parsed.path,
+    }
+
+    if "rancher" in host:
+        namespace, workload_name = parse_rancher_workload(parsed)
+        fields["rancher_namespace"] = namespace
+        fields["kubernetes_workload_name"] = workload_name
+    elif "datadoghq" in host:
+        fields["datadog_service_name"] = parse_datadog_service(parsed)
+    elif CLUSTER_DOMAIN in host:
+        hostname = host.replace(".dev." + CLUSTER_DOMAIN, "")
+        hostname = hostname.replace("." + CLUSTER_DOMAIN, "")
+        fields["api_hostname"] = hostname
+    elif "dev.azure.com" in host:
+        path = parsed.path.strip("/").split("/")
+        if len(path) >= 2:
+            fields["azure_devops_org"] = path[0]
+            fields["project_name"] = path[1]
+        if len(path) >= 3 and path[2] == "_build":
+            query = parse_qs(parsed.query)
+            fields["pipeline_id"] = query.get("definitionId", [""])[0]
+        elif len(path) > 3:
+            fields["repo_name"] = path[3]
+
+    return fields
 
 
 def destination_is_supported(entry, destination):
@@ -301,11 +392,24 @@ class Handler(BaseHTTPRequestHandler):
 
         return client_ip
 
+    def log_redirect_failure(self, route, url, reason, message):
+        event = {
+            "user": self.get_requester_identity(),
+            "result": "failure",
+            "reason": reason,
+            "message": message,
+            "source": describe_source(url) if url else "Unknown",
+            "destination": describe_destination(route),
+            "url": url,
+        }
+        event.update(source_debug_fields(url))
+        print(json.dumps(event), flush=True)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         route = parsed.path.lstrip("/")
         params = parse_qs(parsed.query)
-        url = unquote(params.get("url", [""])[0])
+        url = params.get("url", [""])[0]
 
         if route == "health":
             self.send_response(200)
@@ -329,26 +433,36 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(b"Config reloaded.")
             return
 
+        if route not in {"datadog", "rancher", "rancher-dev", "repo", "pipeline", "api", "api-dev"}:
+            message = "Unknown destination: " + route
+            self.log_redirect_failure(route, url, "unknown_destination", message)
+            self.send_error(400, message)
+            return
+
         if not url:
-            self.send_error(400, "Missing url parameter")
+            message = "Missing url parameter"
+            self.log_redirect_failure(route, url, "missing_url", message)
+            self.send_error(400, message)
             return
 
         entry = identify_app(url)
         if not entry:
-            self.send_error(404, "No mapping found for this URL")
-            return
-
-        if route not in {"datadog", "rancher", "rancher-dev", "repo", "pipeline", "api", "api-dev"}:
-            self.send_error(400, "Unknown destination: " + route)
+            message = describe_mapping_failure(url)
+            self.log_redirect_failure(route, url, "no_mapping", message)
+            self.send_error(404, message)
             return
 
         if not destination_is_supported(entry, route):
-            self.send_error(404, describe_unsupported_destination(entry, route))
+            message = describe_unsupported_destination(entry, route)
+            self.log_redirect_failure(route, url, "unsupported_destination", message)
+            self.send_error(404, message)
             return
 
         target = build_target(entry, route)
         if not target:
-            self.send_error(400, "Unknown destination: " + route)
+            message = "Unknown destination: " + route
+            self.log_redirect_failure(route, url, "unknown_destination", message)
+            self.send_error(400, message)
             return
 
         requester = self.get_requester_identity()
@@ -360,7 +474,7 @@ class Handler(BaseHTTPRequestHandler):
             "app": app_name,
             "source": source,
             "destination": destination,
-        }))
+        }), flush=True)
         self.send_response(302)
         self.send_header("Location", target)
         self.end_headers()
