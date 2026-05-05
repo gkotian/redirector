@@ -34,8 +34,13 @@ Per-app optional fields:
 - `pipeline_id` — omit if there is no Azure DevOps pipeline redirect
 - `is_deployed` — set to `false` if the app is not deployed and has no Rancher/Datadog redirects
 - `datadog_service_name` — omit if `is_deployed` is `false`
+- `kubernetes_workload_name` — omit when it is the same as `datadog_service_name`
 - `api_hostname` — omit if the app has no API endpoint
 - `kubernetes_workload_type` — for deployed apps, set to `deployment` or `cronjob`
+
+If Datadog and Rancher use different names, set both. For example, a Datadog
+service `met.weatherboardv2` can use Kubernetes workload name
+`met-weatherboardv2`.
 
 Project-level note:
 - `rancher_namespace` can be left blank for projects with no Rancher deployment

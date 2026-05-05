@@ -9,6 +9,10 @@ CONFIG_PATH = Path(__file__).parent / "config.json"
 CLUSTER_DOMAIN = "example.com"
 
 
+def entry_kubernetes_workload_name(entry):
+    return entry.get("kubernetes_workload_name") or entry.get("datadog_service_name")
+
+
 def load_config():
     with open(CONFIG_PATH) as f:
         orgs = json.load(f)
@@ -32,18 +36,22 @@ def load_config():
                     "repo_name": app["repo_name"],
                     "pipeline_id": app.get("pipeline_id"),
                     "datadog_service_name": app.get("datadog_service_name"),
+                    "kubernetes_workload_name": app.get("kubernetes_workload_name"),
                     "api_hostname": app.get("api_hostname"),
                     "is_deployed": app.get(
-                        "is_deployed", bool(app.get("datadog_service_name"))
+                        "is_deployed",
+                        bool(
+                            app.get("datadog_service_name")
+                            or app.get("kubernetes_workload_name")
+                        ),
                     ),
                     "kubernetes_workload_type": app.get("kubernetes_workload_type"),
                 }
                 if entry["is_deployed"] and entry["datadog_service_name"]:
                     by_datadog_service[entry["datadog_service_name"]] = entry
-                if entry["is_deployed"] and entry["datadog_service_name"]:
-                    by_rancher[
-                        (namespace, entry["datadog_service_name"])
-                    ] = entry
+                workload_name = entry_kubernetes_workload_name(entry)
+                if entry["is_deployed"] and namespace and workload_name:
+                    by_rancher[(namespace, workload_name)] = entry
                 by_repo[
                     (org, project_name, app["repo_name"])
                 ] = entry
@@ -170,7 +178,7 @@ def destination_is_supported(entry, destination):
         return bool(
             entry.get("is_deployed")
             and entry.get("rancher_namespace")
-            and entry.get("datadog_service_name")
+            and entry_kubernetes_workload_name(entry)
             and entry.get("kubernetes_workload_type") in {"deployment", "cronjob"}
         )
 
@@ -238,7 +246,7 @@ def build_target(entry, destination):
         return ("https://" + subdomain + "." + CLUSTER_DOMAIN + "/dashboard/"
                 "c/local/explorer/" + resource_type + "/" +
                 entry["rancher_namespace"] + "/" +
-                entry["datadog_service_name"] + fragment)
+                entry_kubernetes_workload_name(entry) + fragment)
 
     if destination == "repo":
         return ("https://dev.azure.com/" +

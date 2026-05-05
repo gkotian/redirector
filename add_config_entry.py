@@ -179,6 +179,10 @@ def print_entry(fields):
         f"{format_field_value(fields['datadog_service_name'], not fields['is_deployed'])}"
     )
     print(
+        "  kubernetes_workload_name: "
+        f"{format_field_value(fields['kubernetes_workload_name'], not fields['is_deployed'])}"
+    )
+    print(
         "  kubernetes_workload_type: "
         f"{format_field_value(fields['kubernetes_workload_type'], not fields['is_deployed'])}"
     )
@@ -193,9 +197,12 @@ def normalize_fields(fields):
     if fields["is_deployed"]:
         if not fields["kubernetes_workload_type"]:
             fields["kubernetes_workload_type"] = "deployment"
+        if not fields["kubernetes_workload_name"]:
+            fields["kubernetes_workload_name"] = fields["datadog_service_name"]
     else:
         fields["rancher_namespace"] = ""
         fields["datadog_service_name"] = ""
+        fields["kubernetes_workload_name"] = ""
         fields["kubernetes_workload_type"] = ""
         fields["has_api"] = False
 
@@ -242,6 +249,9 @@ def edit_fields(fields):
         fields["datadog_service_name"] = prompt_optional_string(
             "datadog_service_name", fields["datadog_service_name"]
         )
+        fields["kubernetes_workload_name"] = prompt_optional_string(
+            "kubernetes_workload_name", fields["kubernetes_workload_name"]
+        )
         fields["kubernetes_workload_type"] = prompt_choice(
             "kubernetes_workload_type",
             fields["kubernetes_workload_type"],
@@ -274,6 +284,12 @@ def build_app_entry(fields):
         entry["pipeline_id"] = fields["pipeline_id"]
     if fields["is_deployed"] and fields["datadog_service_name"]:
         entry["datadog_service_name"] = fields["datadog_service_name"]
+    if (
+        fields["is_deployed"]
+        and fields["kubernetes_workload_name"]
+        and fields["kubernetes_workload_name"] != fields["datadog_service_name"]
+    ):
+        entry["kubernetes_workload_name"] = fields["kubernetes_workload_name"]
     if fields["api_hostname"]:
         entry["api_hostname"] = fields["api_hostname"]
     if not fields["is_deployed"]:
@@ -341,6 +357,7 @@ def main():
         "repo_name": repo_name,
         "pipeline_id": "",
         "datadog_service_name": dashify_repo_name(repo_name),
+        "kubernetes_workload_name": dashify_repo_name(repo_name),
         "api_hostname": guess_api_hostname(project_name, repo_name),
         "has_api": bool(guess_api_hostname(project_name, repo_name)),
         "is_deployed": True,
