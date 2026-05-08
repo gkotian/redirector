@@ -1,12 +1,21 @@
+import base64
 import json
+import os
 import socket
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import SplitResult
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.request import Request, urlopen
 
 CONFIG_PATH = Path(__file__).parent / "config.json"
 CLUSTER_DOMAIN = "example.com"
+AZURE_DEVOPS_PAT_ENV = "AZURE_DEVOPS_PAT"
+AZURE_DEVOPS_API_VERSION = "7.1"
+AZURE_DEVOPS_TIMEOUT_SECONDS = 5
+azure_build_definition_cache = {}
+azure_build_resolution_errors = {}
 
 
 def entry_kubernetes_workload_name(entry):
@@ -35,6 +44,104 @@ def parse_datadog_service(parsed):
     for part in q.split(" "):
         if part.startswith("service:"):
             return part.split(":", 1)[1]
+    return ""
+
+
+def azure_build_cache_key(org, project, build_id):
+    return org, project, build_id
+
+
+def remember_azure_build_resolution_error(org, project, build_id, message):
+    key = azure_build_cache_key(org, project, build_id)
+    azure_build_resolution_errors[key] = message
+
+
+def azure_build_resolution_error(org, project, build_id):
+    key = azure_build_cache_key(org, project, build_id)
+    return azure_build_resolution_errors.get(key)
+
+
+def build_azure_devops_request(org, project, build_id, pat):
+    auth_value = base64.b64encode(f":{pat}".encode("utf-8")).decode("ascii")
+    url = (
+        "https://dev.azure.com/"
+        + quote(org, safe="")
+        + "/"
+        + quote(project, safe="")
+        + "/_apis/build/builds/"
+        + quote(build_id, safe="")
+        + "?api-version="
+        + AZURE_DEVOPS_API_VERSION
+    )
+    return Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "Authorization": "Basic " + auth_value,
+        },
+    )
+
+
+def resolve_definition_id_from_build_id(org, project, build_id):
+    key = azure_build_cache_key(org, project, build_id)
+    if key in azure_build_definition_cache:
+        return azure_build_definition_cache[key]
+
+    azure_build_resolution_errors.pop(key, None)
+    pat = os.environ.get(AZURE_DEVOPS_PAT_ENV)
+    if not pat:
+        remember_azure_build_resolution_error(
+            org,
+            project,
+            build_id,
+            f"set {AZURE_DEVOPS_PAT_ENV} to resolve Azure DevOps build URLs",
+        )
+        return ""
+
+    request = build_azure_devops_request(org, project, build_id, pat)
+    try:
+        with urlopen(request, timeout=AZURE_DEVOPS_TIMEOUT_SECONDS) as response:
+            build = json.load(response)
+    except HTTPError as exc:
+        remember_azure_build_resolution_error(
+            org,
+            project,
+            build_id,
+            f"Azure DevOps API returned HTTP {exc.code}",
+        )
+        return ""
+    except (OSError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+        remember_azure_build_resolution_error(
+            org,
+            project,
+            build_id,
+            "Azure DevOps API request failed: " + str(exc),
+        )
+        return ""
+
+    definition_id = str(build.get("definition", {}).get("id") or "")
+    if not definition_id:
+        remember_azure_build_resolution_error(
+            org,
+            project,
+            build_id,
+            "Azure DevOps build response did not include a definition id",
+        )
+        return ""
+
+    azure_build_definition_cache[key] = definition_id
+    return definition_id
+
+
+def resolve_pipeline_id(org, project, query):
+    pipeline_id = query.get("definitionId", [""])[0]
+    if pipeline_id:
+        return pipeline_id
+
+    build_id = query.get("buildId", [""])[0]
+    if build_id:
+        return resolve_definition_id_from_build_id(org, project, build_id)
+
     return ""
 
 
@@ -139,7 +246,7 @@ def identify_app(url):
             project = path[1]
             if path[2] == "_build":
                 query = parse_qs(parsed.query)
-                pipeline_id = query.get("definitionId", [""])[0]
+                pipeline_id = resolve_pipeline_id(org, project, query)
                 if pipeline_id:
                     return by_pipeline.get((org, project, pipeline_id))
             repo = path[3] if len(path) > 3 else None
@@ -217,9 +324,28 @@ def describe_mapping_failure(url):
         path = parsed.path.strip("/").split("/")
         if len(path) >= 3 and path[2] == "_build":
             query = parse_qs(parsed.query)
-            pipeline_id = query.get("definitionId", [""])[0]
-            if pipeline_id:
-                return f"No mapping found for pipeline definitionId {pipeline_id}."
+            definition_id = query.get("definitionId", [""])[0]
+            if definition_id:
+                return f"No mapping found for pipeline definitionId {definition_id}."
+            build_id = query.get("buildId", [""])[0]
+            if build_id and len(path) >= 2:
+                org = path[0]
+                project = path[1]
+                resolved_definition_id = azure_build_definition_cache.get(
+                    azure_build_cache_key(org, project, build_id)
+                )
+                if resolved_definition_id:
+                    return (
+                        f"No mapping found for pipeline buildId {build_id} "
+                        f"(definitionId {resolved_definition_id})."
+                    )
+                error = azure_build_resolution_error(org, project, build_id)
+                if error:
+                    return (
+                        f"Could not resolve Azure DevOps buildId {build_id}: "
+                        f"{error}."
+                    )
+                return f"No mapping found for pipeline buildId {build_id}."
         if len(path) > 3:
             return f"No mapping found for repo {path[0]}/{path[1]}/{path[3]}."
 
@@ -254,7 +380,20 @@ def source_debug_fields(url):
             fields["project_name"] = path[1]
         if len(path) >= 3 and path[2] == "_build":
             query = parse_qs(parsed.query)
-            fields["pipeline_id"] = query.get("definitionId", [""])[0]
+            definition_id = query.get("definitionId", [""])[0]
+            build_id = query.get("buildId", [""])[0]
+            if definition_id:
+                fields["pipeline_id"] = definition_id
+            if build_id:
+                fields["build_id"] = build_id
+                resolved_definition_id = azure_build_definition_cache.get(
+                    azure_build_cache_key(path[0], path[1], build_id)
+                )
+                if resolved_definition_id:
+                    fields["pipeline_id"] = resolved_definition_id
+                error = azure_build_resolution_error(path[0], path[1], build_id)
+                if error:
+                    fields["pipeline_resolution_error"] = error
         elif len(path) > 3:
             fields["repo_name"] = path[3]
 

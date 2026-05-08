@@ -45,6 +45,11 @@ service `met.weatherboardv2` can use Kubernetes workload name
 Project-level note:
 - `rancher_namespace` can be left blank for projects with no Rancher deployment
 
+Azure DevOps pipeline run pages use `buildId` instead of `definitionId`. To
+redirect from those pages, set `AZURE_DEVOPS_PAT` in the redirector process
+environment. The token needs build read access (`vso.build`). Pipeline pages
+that already include `definitionId` do not need this token.
+
 After editing, reload the config by visiting
 `http://localhost:1111/reload` in your browser, or restart the server.
 
