@@ -199,6 +199,8 @@ def normalize_fields(fields):
             fields["kubernetes_workload_type"] = "deployment"
         if not fields["kubernetes_workload_name"]:
             fields["kubernetes_workload_name"] = fields["datadog_service_name"]
+        if fields["kubernetes_workload_type"] == "cronjob":
+            fields["has_api"] = False
     else:
         fields["rancher_namespace"] = ""
         fields["datadog_service_name"] = ""
@@ -228,8 +230,10 @@ def prompt_rancher_and_api_fields(
             fields["kubernetes_workload_type"],
             ("deployment", "cronjob"),
         )
+        if fields["kubernetes_workload_type"] == "cronjob":
+            fields["has_api"] = False
 
-    if fields["is_deployed"]:
+    if fields["is_deployed"] and fields["kubernetes_workload_type"] != "cronjob":
         fields["has_api"] = prompt_bool(
             f"Does {repo_name} expose an API?", fields["has_api"]
         )
