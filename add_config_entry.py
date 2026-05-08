@@ -133,7 +133,7 @@ def prompt_optional_string(label, default):
 def prompt_bool(label, default):
     rendered_default = "y" if default else "n"
     while True:
-        answer = input(f"{label} [default: {rendered_default}] (y/n): ").strip().lower()
+        answer = input(f"{label} (y/n) [{rendered_default}]: ").strip().lower()
         if not answer:
             return default
         if answer in {"y", "yes"}:
@@ -146,7 +146,7 @@ def prompt_bool(label, default):
 def prompt_choice(label, default, choices):
     choices_display = "/".join(choices)
     while True:
-        prompt = f"{label} [{default}] ({choices_display}): "
+        prompt = f"{label} ({choices_display}) [{default}]: "
         answer = input(prompt).strip().lower()
         if not answer:
             return default
@@ -212,12 +212,21 @@ def normalize_fields(fields):
     return fields
 
 
-def prompt_rancher_and_api_fields(fields, include_rancher_visibility):
+def prompt_rancher_and_api_fields(
+    fields, include_rancher_visibility, include_workload_type=False
+):
     repo_name = fields["repo_name"]
 
     if include_rancher_visibility:
         fields["is_deployed"] = prompt_bool(
             f"Is {repo_name} visible on rancher?", fields["is_deployed"]
+        )
+
+    if fields["is_deployed"] and include_workload_type:
+        fields["kubernetes_workload_type"] = prompt_choice(
+            "kubernetes_workload_type",
+            fields["kubernetes_workload_type"],
+            ("deployment", "cronjob"),
         )
 
     if fields["is_deployed"]:
@@ -265,11 +274,12 @@ def edit_fields(fields):
 
 def collect_fields(initial_fields):
     fields = dict(initial_fields)
-    print("")
     fields["pipeline_id"] = prompt_optional_string(
         "Enter the pipeline definition ID", fields["pipeline_id"]
     )
-    fields = prompt_rancher_and_api_fields(fields, include_rancher_visibility=True)
+    fields = prompt_rancher_and_api_fields(
+        fields, include_rancher_visibility=True, include_workload_type=True
+    )
 
     while True:
         print_entry(fields)
