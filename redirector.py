@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 CONFIG_PATH = Path(__file__).parent / "config.json"
 CLUSTER_DOMAIN = "example.com"
 AZURE_DEVOPS_PAT_ENV = "AZURE_DEVOPS_PAT"
+AZURE_DEVOPS_PAT_FILE_ENV = "AZURE_DEVOPS_PAT_FILE"
 AZURE_DEVOPS_API_VERSION = "7.1"
 AZURE_DEVOPS_TIMEOUT_SECONDS = 5
 azure_build_definition_cache = {}
@@ -61,6 +62,50 @@ def azure_build_resolution_error(org, project, build_id):
     return azure_build_resolution_errors.get(key)
 
 
+def read_azure_devops_pat():
+    env_pat = os.environ.get(AZURE_DEVOPS_PAT_ENV, "").strip()
+    if env_pat:
+        return env_pat, ""
+
+    pat_file = os.environ.get(AZURE_DEVOPS_PAT_FILE_ENV, "").strip()
+    if not pat_file:
+        return (
+            "",
+            f"set {AZURE_DEVOPS_PAT_ENV} or {AZURE_DEVOPS_PAT_FILE_ENV}",
+        )
+
+    pat_path = Path(pat_file)
+    try:
+        file_pat = pat_path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return "", f"Azure DevOps PAT file {pat_path} does not exist"
+    except OSError as exc:
+        return "", f"could not read Azure DevOps PAT file {pat_path}: {exc}"
+
+    if not file_pat:
+        return "", f"Azure DevOps PAT file {pat_path} is empty"
+
+    return file_pat, ""
+
+
+def describe_azure_devops_pat_source():
+    if os.environ.get(AZURE_DEVOPS_PAT_ENV, "").strip():
+        return f"{AZURE_DEVOPS_PAT_ENV} is set"
+
+    pat_file = os.environ.get(AZURE_DEVOPS_PAT_FILE_ENV, "").strip()
+    if not pat_file:
+        return (
+            "Azure DevOps buildId resolution disabled; "
+            f"set {AZURE_DEVOPS_PAT_ENV} or {AZURE_DEVOPS_PAT_FILE_ENV}"
+        )
+
+    pat_path = Path(pat_file)
+    if pat_path.is_file():
+        return f"Azure DevOps PAT file configured at {pat_path}"
+
+    return f"Azure DevOps PAT file configured but missing: {pat_path}"
+
+
 def build_azure_devops_request(org, project, build_id, pat):
     auth_value = base64.b64encode(f":{pat}".encode("utf-8")).decode("ascii")
     url = (
@@ -88,13 +133,13 @@ def resolve_definition_id_from_build_id(org, project, build_id):
         return azure_build_definition_cache[key]
 
     azure_build_resolution_errors.pop(key, None)
-    pat = os.environ.get(AZURE_DEVOPS_PAT_ENV)
+    pat, pat_error = read_azure_devops_pat()
     if not pat:
         remember_azure_build_resolution_error(
             org,
             project,
             build_id,
-            f"set {AZURE_DEVOPS_PAT_ENV} to resolve Azure DevOps build URLs",
+            pat_error,
         )
         return ""
 
@@ -627,4 +672,5 @@ if __name__ == "__main__":
     port = 1111
     print(f"Redirector running on http://{host}:{port}")
     print(f"Config: {CONFIG_PATH}")
+    print(describe_azure_devops_pat_source())
     HTTPServer((host, port), Handler).serve_forever()
