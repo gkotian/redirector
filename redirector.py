@@ -23,20 +23,49 @@ def entry_kubernetes_workload_name(entry):
     return entry.get("kubernetes_workload_name") or entry.get("datadog_service_name")
 
 
-def parse_rancher_workload(parsed):
+def parse_rancher_resource(parsed):
     parts = [unquote(part) for part in parsed.path.strip("/").split("/") if part]
 
     if "explorer" in parts:
         explorer_index = parts.index("explorer")
         if len(parts) > explorer_index + 3:
+            resource_type = parts[explorer_index + 1]
             namespace = parts[explorer_index + 2]
             workload_name = parts[explorer_index + 3]
-            return namespace, workload_name
+            return resource_type, namespace, workload_name
 
     if len(parts) >= 2:
-        return parts[-2], parts[-1]
+        return "", parts[-2], parts[-1]
 
-    return "", ""
+    return "", "", ""
+
+
+def parse_rancher_workload(parsed):
+    _, namespace, workload_name = parse_rancher_resource(parsed)
+    return namespace, workload_name
+
+
+def cronjob_workload_name_from_job_name(workload_name):
+    cronjob_name, _, run_suffix = workload_name.rpartition("-")
+    if cronjob_name and run_suffix.isdigit():
+        return cronjob_name
+    return ""
+
+
+def identify_rancher_app(parsed):
+    resource_type, namespace, workload_name = parse_rancher_resource(parsed)
+    entry = by_rancher.get((namespace, workload_name))
+    if entry:
+        return entry
+
+    if resource_type == "batch.job":
+        cronjob_name = cronjob_workload_name_from_job_name(workload_name)
+        if cronjob_name:
+            entry = by_rancher.get((namespace, cronjob_name))
+            if entry and entry.get("kubernetes_workload_type") == "cronjob":
+                return entry
+
+    return None
 
 
 def parse_datadog_service(parsed):
@@ -267,8 +296,7 @@ def identify_app(url):
     host = parsed.hostname or ""
 
     if "rancher" in host:
-        namespace, workload_name = parse_rancher_workload(parsed)
-        return by_rancher.get((namespace, workload_name))
+        return identify_rancher_app(parsed)
 
     if "datadoghq" in host:
         service = parse_datadog_service(parsed)
@@ -409,7 +437,8 @@ def source_debug_fields(url):
     }
 
     if "rancher" in host:
-        namespace, workload_name = parse_rancher_workload(parsed)
+        resource_type, namespace, workload_name = parse_rancher_resource(parsed)
+        fields["rancher_resource_type"] = resource_type
         fields["rancher_namespace"] = namespace
         fields["kubernetes_workload_name"] = workload_name
     elif "datadoghq" in host:
